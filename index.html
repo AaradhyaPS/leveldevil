@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mini Hill Drive — by Aaradhya</title>
+<style>
+  html,body{height:100%;margin:0;background:#87CEEB;display:flex;align-items:center;justify-content:center;font-family:Arial}
+  canvas{background:linear-gradient(#87CEEB,#cfe9ff);border:6px solid #333;border-radius:12px}
+  #ui{position:fixed;left:12px;top:12px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+  #controls{position:fixed;right:12px;bottom:12px}
+  button{font-size:18px;padding:10px 14px;margin:6px;border-radius:8px;border:none;background:#ff7f50;color:#fff}
+  .hint{font-size:12px;color:#222;margin-top:6px}
+</style>
+</head>
+<body>
+<div id="ui">
+  <div><strong>Mini Hill Drive</strong></div>
+  <div id="score">Score: 0</div>
+  <div id="coins">Coins: 0</div>
+</div>
+
+<canvas id="game" width="900" height="480"></canvas>
+
+<div id="controls">
+  <button id="acc">Accelerate</button>
+  <button id="jump">Jump</button>
+  <div class="hint">Tilt: Left/Right arrows or A/D</div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+let camX = 0;
+
+// player
+const player = {
+  x: 150, y: 300, w: 64, h: 32,
+  vx: 0, vy: 0, angle: 0,
+  onGround: false
+};
+
+// terrain as segments (x,y)
+const terrain = [];
+function generateTerrain() {
+  let x = 0, y = 340;
+  for (let i=0;i<200;i++){
+    // random slope
+    let dx = 160;
+    let dy = (Math.random()-0.5) * 140;
+    y = Math.max(160, Math.min(420, y + dy));
+    terrain.push({x:x, y:y});
+    x += dx;
+  }
+}
+generateTerrain();
+
+// coins & obstacles
+const coins = [];
+const obstacles = [];
+for(let i=2;i<terrain.length-2;i+=3){
+  coins.push({x: terrain[i].x + 60 + Math.random()*40, y: terrain[i].y - 60, taken:false});
+}
+for(let i=4;i<terrain.length-2;i+=5){
+  obstacles.push({x: terrain[i].x + 90, y: terrain[i].y - 18, w:36, h:36});
+}
+
+let score=0, coinsCount=0;
+const gravity = 0.9;
+
+function getTerrainY(worldX){
+  // find segment
+  for(let i=0;i<terrain.length-1;i++){
+    if(worldX >= terrain[i].x && worldX <= terrain[i+1].x){
+      const t = (worldX - terrain[i].x) / (terrain[i+1].x - terrain[i].x);
+      return terrain[i].y + (terrain[i+1].y - terrain[i].y) * t;
+    }
+  }
+  return terrain[terrain.length-1].y;
+}
+
+function update(){
+  // physics
+  player.vy += gravity;
+  player.x += player.vx;
+  player.y += player.vy;
+
+  // ground collision
+  const groundY = getTerrainY(player.x + player.w/2);
+  if(player.y + player.h/2 >= groundY){
+    player.y = groundY - player.h/2;
+    player.vy = 0;
+    player.onGround = true;
+  } else player.onGround = false;
+
+  // friction / drag
+  player.vx *= 0.995;
+
+  // camera follow
+  camX = player.x - 220;
+
+  // collisions with obstacles
+  for(let ob of obstacles){
+    if(Math.abs((player.x+player.w/2)-ob.x) < 40 && Math.abs((player.y+player.h/2)-ob.y) < 40){
+      // crash = reset a bit & penalty
+      player.vx = -6;
+      score = Math.max(0, score - 50);
+    }
+  }
+
+  // coins collection
+  for(let c of coins){
+    if(!c.taken && Math.hypot((player.x+player.w/2)-c.x, (player.y+player.h/2)-c.y) < 50){
+      c.taken = true; coinsCount++; score += 100;
+      document.getElementById('coins').innerText = 'Coins: ' + coinsCount;
+    }
+  }
+
+  // update score by distance
+  score = Math.max(score, Math.floor(player.x));
+  document.getElementById('score').innerText = 'Score: ' + score;
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+
+  // sky gradient
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#87CEEB'); g.addColorStop(1,'#cfe9ff');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,W,H);
+
+  // draw ground path
+  ctx.beginPath();
+  for(let i=0;i<terrain.length;i++){
+    ctx.lineTo(terrain[i].x - camX, terrain[i].y);
+  }
+  ctx.lineTo(W, H); ctx.lineTo(0,H); ctx.closePath();
+  ctx.fillStyle = '#6b8e23';
+  ctx.fill();
+
+  // obstacles
+  ctx.fillStyle = '#8b0000';
+  for(let ob of obstacles){
+    ctx.fillRect(ob.x - camX - ob.w/2, ob.y - ob.h/2, ob.w, ob.h);
+  }
+
+  // coins
+  for(let c of coins){
+    if(c.taken) continue;
+    ctx.beginPath();
+    ctx.arc(c.x - camX, c.y, 10, 0, Math.PI*2);
+    ctx.fillStyle = '#ffd700'; ctx.fill(); ctx.strokeStyle='#b8860b'; ctx.stroke();
+  }
+
+  // player (car body)
+  ctx.save();
+  ctx.translate(player.x - camX, player.y);
+  ctx.rotate(player.angle);
+  // body
+  ctx.fillStyle = '#1e90ff';
+  ctx.fillRect(-player.w/2, -player.h/2, player.w, player.h);
+  // wheels
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.arc(-20, player.h/2, 10,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(20, player.h/2, 10,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // HUD small
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillRect(8, H-40, 130,28);
+  ctx.fillStyle = '#fff';
+  ctx.fillText('Distance: '+Math.floor(player.x), 14, H-22);
+}
+
+let last = 0;
+function loop(t){
+  const dt = (t - last) / 16.666;
+  last = t;
+  for(let i=0;i<Math.max(1,Math.floor(dt));i++){
+    update();
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// controls
+document.getElementById('acc').addEventListener('pointerdown', ()=>{ player.vx += 2; });
+document.getElementById('jump').addEventListener('pointerdown', ()=>{
+  if(player.onGround){ player.vy = -16; player.onGround=false; }
+});
+window.addEventListener('keydown', (e)=>{
+  if(e.key==='ArrowRight' || e.key==='d') player.vx += 2;
+  if(e.key==='ArrowLeft' || e.key==='a') player.vx -= 2;
+  if(e.key===' ' || e.key==='w' || e.key==='ArrowUp') { if(player.onGround){ player.vy = -16; player.onGround=false; } }
+});
+</script>
+</body>
+</html>
