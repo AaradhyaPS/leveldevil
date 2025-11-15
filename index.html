@@ -1,63 +1,213 @@
-const config = {
-  type: Phaser.AUTO,
-  width: 900,
-  height: 480,
-  physics: { default: 'arcade', arcade: { gravity: { y: 1000 }, debug: false }},
-  scene: { preload, create, update }
-};
-const game = new Phaser.Game(config);
-let player, cursors, groundLayer, camera;
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Level Devil Style Game</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<style>
+    body { margin:0; background:#111; overflow:hidden; }
+    canvas { display:block; margin:0 auto; background:#87CEEB; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
 
-function preload(){
-  this.load.image('bg','assets/bg.png');
-  this.load.image('ground','assets/ground.png');
-  this.load.image('car','assets/car.png');
-  this.load.image('coin','assets/coin.png');
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+canvas.width = 900;
+canvas.height = 500;
+
+let keys = {};
+window.addEventListener("keydown", e => keys[e.key] = true);
+window.addEventListener("keyup", e => keys[e.key] = false);
+
+class Player {
+    constructor(){
+        this.x = 100;
+        this.y = 350;
+        this.w = 35;
+        this.h = 50;
+        this.vx = 0;
+        this.vy = 0;
+        this.onGround = false;
+    }
+
+    update(){
+        this.vy += 0.7; // gravity
+
+        if(keys["a"] || keys["ArrowLeft"]) this.vx = -4;
+        else if(keys["d"] || keys["ArrowRight"]) this.vx = 4;
+        else this.vx = 0;
+
+        if((keys[" "] || keys["w"] || keys["ArrowUp"]) && this.onGround){
+            this.vy = -14;
+            this.onGround = false;
+        }
+
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // collisions
+        this.onGround = false;
+        for(let p of platforms){
+            if(this.x + this.w > p.x && this.x < p.x + p.w){
+                if(this.y + this.h > p.y && this.y + this.h < p.y + 20 && this.vy >= 0){
+                    this.y = p.y - this.h;
+                    this.vy = 0;
+                    this.onGround = true;
+                }
+            }
+        }
+
+        // spike death
+        for(let s of spikes){
+            if(this.x + this.w > s.x && this.x < s.x + s.w &&
+               this.y + this.h > s.y && this.y < s.y + s.h){
+                resetGame();
+            }
+        }
+
+        // fake floor (falls)
+        for(let f of fakeFloors){
+            if(!f.broken && this.x + this.w > f.x && this.x < f.x + f.w &&
+               this.y + this.h > f.y && this.y < f.y + f.h){
+                f.broken = true;
+            }
+            if(f.broken) f.y += 6;
+        }
+    }
+
+    draw(){
+        ctx.fillStyle = "black";
+        ctx.fillRect(this.x - camX, this.y, this.w, this.h);
+    }
 }
 
-function create(){
-  this.add.tileSprite(450,240,900,480,'bg').setScrollFactor(0);
-  // create long ground by tiling sprites
-  groundLayer = this.add.group();
-  for(let i=0;i<200;i++){
-    let x = i*160;
-    let g = this.physics.add.staticImage(x, 360 + (Math.random()-0.5)*140, 'ground');
-    g.setOrigin(0.5,0.5);
-    groundLayer.add(g);
-  }
-
-  player = this.physics.add.sprite(150, 200, 'car').setScale(0.6);
-  player.setCollideWorldBounds(false);
-  player.setDrag(100);
-  player.setBounce(0.1);
-
-  // simple collision with ground by overlap check via Arcade's world bounds
-  this.physics.add.collider(player, groundLayer, () => {}, null, this);
-
-  cursors = this.input.keyboard.createCursorKeys();
-
-  // coins
-  const coins = this.physics.add.group();
-  for(let i=3;i<150;i+=3){
-    let x = i*160 + 80;
-    let y = 220 + (Math.random()-0.5)*120;
-    let c = coins.create(x,y,'coin');
-    c.setImmovable(true);
-  }
-  this.physics.add.overlap(player, coins, (p,c)=>{
-    c.destroy();
-  }, null, this);
-
-  camera = this.cameras.main;
-  camera.startFollow(player, true, 0.08, 0.08);
-  camera.setBounds(0,0,160*200,480);
-  this.cameras.main.setZoom(1);
+class Platform {
+    constructor(x,y,w){
+        this.x=x; this.y=y; this.w=w; this.h=20;
+    }
+    draw(){
+        ctx.fillStyle="#444";
+        ctx.fillRect(this.x - camX, this.y, this.w, this.h);
+    }
 }
+
+class Spike {
+    constructor(x,y){
+        this.x=x; this.y=y; this.w=30; this.h=30;
+    }
+    draw(){
+        ctx.fillStyle="red";
+        ctx.beginPath();
+        ctx.moveTo(this.x - camX, this.y+30);
+        ctx.lineTo(this.x - camX + 15, this.y);
+        ctx.lineTo(this.x - camX + 30, this.y+30);
+        ctx.fill();
+    }
+}
+
+class FakeFloor {
+    constructor(x,y,w){
+        this.x=x; this.y=y; this.w=w; this.h=15;
+        this.broken=false;
+    }
+    draw(){
+        ctx.fillStyle = this.broken ? "#663300" : "#996633";
+        ctx.fillRect(this.x - camX, this.y, this.w, this.h);
+    }
+}
+
+
+// LEVEL DESIGN
+let platforms = [];
+let spikes = [];
+let fakeFloors = [];
+
+function buildLevel(){
+    platforms.push(new Platform(0,400,900));
+    platforms.push(new Platform(900,400,900));
+    platforms.push(new Platform(1800,400,900));
+
+    // spike traps
+    spikes.push(new Spike(300,370));
+    spikes.push(new Spike(1100,370));
+    spikes.push(new Spike(1600,370));
+
+    // fake floors
+    fakeFloors.push(new FakeFloor(600,390,100));
+    fakeFloors.push(new FakeFloor(1450,390,120));
+
+    // moving platform
+    movingPlatform = {x:2000,y:320,w:150,dir:1};
+}
+
+let movingPlatform;
+let camX = 0;
+const player = new Player();
+
+function resetGame(){
+    player.x = 100;
+    player.y = 350;
+    fakeFloors.forEach(f=>f.broken=false);
+}
+
+buildLevel();
 
 function update(){
-  if (cursors.right.isDown) { player.setAccelerationX(600); }
-  else if (cursors.left.isDown) { player.setAccelerationX(-300); }
-  else { player.setAccelerationX(0); player.setDragX(700); }
+    player.update();
 
-  if (cursors.up.isDown && player.body.onFloor()) { player.setVelocityY(-420); }
+    // moving platform logic
+    movingPlatform.x += 2 * movingPlatform.dir;
+    if(movingPlatform.x > 2300) movingPlatform.dir = -1;
+    if(movingPlatform.x < 1800) movingPlatform.dir = 1;
+
+    // collision with moving platform
+    if(player.x + player.w > movingPlatform.x &&
+       player.x < movingPlatform.x + movingPlatform.w &&
+       player.y + player.h > movingPlatform.y &&
+       player.y + player.h < movingPlatform.y + 20 &&
+       player.vy >= 0){
+           player.y = movingPlatform.y - player.h;
+           player.vy = 0;
+           player.onGround = true;
+    }
+
+    // camera follow
+    camX = player.x - 200;
+    if(camX < 0) camX = 0;
 }
+
+function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // sky
+    ctx.fillStyle="#87CEEB";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // ground/platforms
+    platforms.forEach(p=>p.draw());
+
+    // moving platform
+    ctx.fillStyle="#555";
+    ctx.fillRect(movingPlatform.x - camX, movingPlatform.y, movingPlatform.w, 20);
+
+    // spikes
+    spikes.forEach(s=>s.draw());
+
+    // fake floors
+    fakeFloors.forEach(f=>f.draw());
+
+    player.draw();
+}
+
+function loop(){
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
